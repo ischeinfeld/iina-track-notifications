@@ -1,5 +1,6 @@
 import type {
   EvaluationReason,
+  NotificationMode,
   TrackSnapshot,
   TransitionContext,
   TransitionResult,
@@ -9,18 +10,38 @@ const RESTART_REASONS: EvaluationReason[] = ["mpv.file-loaded", "mpv.end-file"];
 
 export function buildTrackKey(
   playlistIndex: number,
-  url: string,
+  sourceIdentity: string,
   displayName: string,
 ): string {
   if (Number.isInteger(playlistIndex) && playlistIndex >= 0) {
-    return `${playlistIndex}|${url}`;
+    return `${playlistIndex}|${sourceIdentity}`;
   }
 
-  return `url:${url}|title:${displayName}`;
+  return `url:${sourceIdentity}|title:${displayName}`;
 }
 
 export function hasRestartSignal(reasons: EvaluationReason[]): boolean {
   return reasons.some((reason) => RESTART_REASONS.includes(reason));
+}
+
+export function shouldSuppressDuplicateNotification(
+  dedupeKey: string | null,
+  lastNotificationKey: string | null,
+  lastNotificationAt: number,
+  now: number,
+  dedupeMs: number,
+): boolean {
+  return Boolean(dedupeKey) &&
+    dedupeKey === lastNotificationKey &&
+    now - lastNotificationAt <= dedupeMs;
+}
+
+export function shouldNotifyEndedTransition(
+  isWindowClosing: boolean,
+  notifyOnEndWithoutNext: boolean,
+  mode: NotificationMode,
+): boolean {
+  return !isWindowClosing && notifyOnEndWithoutNext && mode !== "start";
 }
 
 export function mergeSnapshots(previous: TrackSnapshot, next: TrackSnapshot): TrackSnapshot {
@@ -36,6 +57,7 @@ function sameNonEmpty(a: string, b: string): boolean {
 }
 
 export function isSameTrackIdentity(previous: TrackSnapshot, next: TrackSnapshot): boolean {
+  // IINA can reindex the current file when it expands a one-file open into a directory playlist.
   const sameSource =
     sameNonEmpty(previous.sourceIdentity, next.sourceIdentity) ||
     sameNonEmpty(previous.url, next.url) ||

@@ -20,12 +20,11 @@ export interface TrackSnapshot {
   title: string;
   displayName: string;
   trackKey: string;
-  timestamp: number;
 }
 
 export interface NotificationPayload {
   title: string;
-  subtitle: string;
+  subtitle?: string;
   body: string;
   soundName?: string;
 }

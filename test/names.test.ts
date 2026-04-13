@@ -1,13 +1,13 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
+import assert from "node:assert/strict";
+import test from "node:test";
 
-const {
+import {
   UNKNOWN_TRACK,
   basename,
   displayNameForCurrentItem,
   displayNameForPlaylistItem,
   normalizeSourceIdentity,
-} = require("../dist/lib/names.js");
+} from "../src/lib/names";
 
 test("basename handles local paths, file URLs, and query strings", () => {
   assert.equal(basename("/Users/me/Music/track01.mp3"), "track01.mp3");

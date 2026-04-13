@@ -1,31 +1,35 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
+import assert from "node:assert/strict";
+import test from "node:test";
 
-const {
+import type { TrackSnapshot } from "../src/lib/types";
+import {
   buildTrackKey,
   classifyTransition,
   hasRestartSignal,
   isSameTrackIdentity,
   mergeSnapshots,
-} = require("../dist/lib/state.js");
+  shouldNotifyEndedTransition,
+  shouldSuppressDuplicateNotification,
+} from "../src/lib/state";
 
-const snapshot = (overrides = {}) => ({
-  playlistIndex: 0,
-  url: "file:///tmp/track.mp3",
-  rawFilename: "/tmp/track.mp3",
-  sourceIdentity: "/tmp/track.mp3",
-  title: "Track",
-  displayName: "Track",
-  trackKey: "0|/tmp/track.mp3",
-  timestamp: 1,
-  ...overrides,
-});
+function snapshot(overrides: Partial<TrackSnapshot> = {}): TrackSnapshot {
+  return {
+    playlistIndex: 0,
+    url: "file:///tmp/track.mp3",
+    rawFilename: "/tmp/track.mp3",
+    sourceIdentity: "/tmp/track.mp3",
+    title: "Track",
+    displayName: "Track",
+    trackKey: "0|/tmp/track.mp3",
+    ...overrides,
+  };
+}
 
 test("buildTrackKey uses playlist position when available", () => {
-  assert.equal(buildTrackKey(3, "file:///tmp/track.mp3", "Track"), "3|file:///tmp/track.mp3");
+  assert.equal(buildTrackKey(3, "/tmp/track.mp3", "Track"), "3|/tmp/track.mp3");
   assert.equal(
-    buildTrackKey(-1, "file:///tmp/track.mp3", "Track"),
-    "url:file:///tmp/track.mp3|title:Track",
+    buildTrackKey(-1, "/tmp/track.mp3", "Track"),
+    "url:/tmp/track.mp3|title:Track",
   );
 });
 
@@ -100,14 +104,14 @@ test("classifyTransition covers initial, change, end, title update, and restart"
 test("mergeSnapshots keeps the newer fields while preserving a display name", () => {
   const merged = mergeSnapshots(
     snapshot({ displayName: "Old", title: "Old" }),
-    snapshot({ displayName: "New", title: "New", timestamp: 2 }),
+    snapshot({ displayName: "New", title: "New" }),
   );
 
   assert.equal(merged.displayName, "New");
-  assert.equal(merged.timestamp, 2);
+  assert.equal(merged.title, "New");
 });
 
-test("isSameTrackIdentity treats late playlist/title stabilization as the same track", () => {
+test("isSameTrackIdentity treats late playlist and title stabilization as the same track", () => {
   assert.equal(
     isSameTrackIdentity(
       snapshot({
@@ -204,4 +208,30 @@ test("classifyTransition keeps same-file metadata improvements as title updates"
     }).kind,
     "title-update",
   );
+});
+
+test("shouldSuppressDuplicateNotification applies the dedupe window to matching keys only", () => {
+  assert.equal(
+    shouldSuppressDuplicateNotification("changed:a->b", "changed:a->b", 1000, 1800, 1000),
+    true,
+  );
+  assert.equal(
+    shouldSuppressDuplicateNotification("changed:a->b", "changed:a->b", 1000, 2501, 1000),
+    false,
+  );
+  assert.equal(
+    shouldSuppressDuplicateNotification("changed:a->b", "changed:b->c", 1000, 1800, 1000),
+    false,
+  );
+  assert.equal(
+    shouldSuppressDuplicateNotification(null, "changed:a->b", 1000, 1800, 1000),
+    false,
+  );
+});
+
+test("shouldNotifyEndedTransition suppresses shutdown noise", () => {
+  assert.equal(shouldNotifyEndedTransition(true, true, "both"), false);
+  assert.equal(shouldNotifyEndedTransition(false, false, "both"), false);
+  assert.equal(shouldNotifyEndedTransition(false, true, "start"), false);
+  assert.equal(shouldNotifyEndedTransition(false, true, "both"), true);
 });
