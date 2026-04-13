@@ -78,7 +78,6 @@ export function buildAppleScript(payload: NotificationPayload): string {
 export function buildInitialPayload(next: TrackSnapshot): NotificationPayload {
   return {
     title: "Track Changed",
-    subtitle: "",
     body: `Next: ${next.displayName}`,
   };
 }
@@ -86,7 +85,6 @@ export function buildInitialPayload(next: TrackSnapshot): NotificationPayload {
 export function buildEndedPayload(previous: TrackSnapshot): NotificationPayload {
   return {
     title: "Track Changed",
-    subtitle: "",
     body: `Previous: ${previous.displayName}`,
   };
 }
@@ -106,7 +104,6 @@ export function buildTrackChangePayload(
 
   return {
     title: "Track Changed",
-    subtitle: "",
     body: `Previous: ${previous.displayName}\nNext: ${next.displayName}`,
   };
 }

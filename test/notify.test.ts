@@ -1,7 +1,8 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
+import assert from "node:assert/strict";
+import test from "node:test";
 
-const {
+import type { TrackSnapshot } from "../src/lib/types";
+import {
   appleScriptString,
   buildAppleScript,
   buildEndedPayload,
@@ -11,17 +12,19 @@ const {
   normalizeOneLine,
   sanitizeNotificationBody,
   sanitizeNotificationField,
-} = require("../dist/lib/notify.js");
+} from "../src/lib/notify";
 
-const snapshot = (displayName) => ({
-  playlistIndex: 0,
-  url: `file:///tmp/${displayName}.mp3`,
-  rawFilename: `/tmp/${displayName}.mp3`,
-  title: displayName,
-  displayName,
-  trackKey: `0|file:///tmp/${displayName}.mp3`,
-  timestamp: 1,
-});
+function snapshot(displayName: string): TrackSnapshot {
+  return {
+    playlistIndex: 0,
+    url: `file:///tmp/${displayName}.mp3`,
+    rawFilename: `/tmp/${displayName}.mp3`,
+    sourceIdentity: `/tmp/${displayName}.mp3`,
+    title: displayName,
+    displayName,
+    trackKey: `0|/tmp/${displayName}.mp3`,
+  };
+}
 
 test("normalizeOneLine collapses whitespace", () => {
   assert.equal(normalizeOneLine("  Hello\nWorld\tagain  "), "Hello World again");
@@ -43,7 +46,7 @@ test("sanitizeNotificationField truncates long fields", () => {
 test("sanitizeNotificationBody truncates per line and preserves newlines", () => {
   const result = sanitizeNotificationBody(`Previous: ${"x".repeat(200)}\nNext: Song`, 20);
   assert.equal(result.split("\n").length, 2);
-  assert.ok(result.split("\n")[0].endsWith("…"));
+  assert.ok(result.split("\n")[0]?.endsWith("…"));
   assert.equal(result.split("\n")[1], "Next: Song");
 });
 
@@ -57,19 +60,16 @@ test("appleScriptString escapes quotes and backslashes", () => {
 test("payload builders match the configured notification mode", () => {
   assert.deepEqual(buildInitialPayload(snapshot("Started")), {
     title: "Track Changed",
-    subtitle: "",
     body: "Next: Started",
   });
   assert.deepEqual(buildEndedPayload(snapshot("Ended")), {
     title: "Track Changed",
-    subtitle: "",
     body: "Previous: Ended",
   });
   assert.deepEqual(
     buildTrackChangePayload("both", snapshot("Ended"), snapshot("Started")),
     {
       title: "Track Changed",
-      subtitle: "",
       body: "Previous: Ended\nNext: Started",
     },
   );
@@ -78,7 +78,6 @@ test("payload builders match the configured notification mode", () => {
 test("buildAppleScript assembles the notification command", () => {
   const script = buildAppleScript({
     title: "Track Changed",
-    subtitle: "",
     body: "Previous: Sleep Apnea\nNext: Down the Line",
     soundName: "Frog",
   });

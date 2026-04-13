@@ -4,8 +4,31 @@
   <meta charset="UTF-8" />
   <title>Track Change Notifications Preferences</title>
   <style>
+    .pref-section {
+      margin-bottom: 16px;
+    }
+
+    .radio-group {
+      margin-top: 4px;
+      display: grid;
+      gap: 4px;
+      line-height: 24px;
+    }
+
+    .input-row {
+      margin-top: 2px;
+    }
+
     .number-input {
       width: 6rem;
+    }
+
+    .full-width {
+      width: 100%;
+    }
+
+    .pref-help {
+      margin: 4px 0 0;
     }
   </style>
 </head>
@@ -19,7 +42,7 @@
 
   <div class="pref-section">
     Notification mode:
-    <div style="margin-top: 4px; line-height: 24px">
+    <div class="radio-group">
       <div>
         <label><input type="radio" name="notificationMode" value="start" /> Beginning track only</label>
       </div>
@@ -62,7 +85,7 @@
 
   <div class="pref-section">
     Delay before notification (ms):
-    <div style="margin-top: 2px">
+    <div class="input-row">
       <input class="number-input" type="number" data-type="int" data-pref-key="titleDelayMs" />
     </div>
     <p class="small secondary pref-help">
@@ -72,34 +95,40 @@
 
   <div class="pref-section">
     Duplicate suppression window (ms):
-    <div style="margin-top: 2px">
+    <div class="input-row">
       <input class="number-input" type="number" data-type="int" data-pref-key="dedupeMs" />
     </div>
   </div>
 
   <div class="pref-section">
     Notification sound name:
-    <div style="margin-top: 2px">
-      <input type="text" data-pref-key="soundName" style="width: 100%" />
+    <div class="input-row">
+      <input class="full-width" type="text" data-pref-key="soundName" />
     </div>
     <p class="small secondary pref-help">
       Leave empty for no sound.
     </p>
   </div>
 
+  <script id="preference-defaults" type="application/json">
+    {
+      "enabled": true,
+      "notificationMode": "both",
+      "onlyMainWindow": true,
+      "notifyOnInitialTrack": true,
+      "notifyOnEndWithoutNext": false,
+      "notifyOnSameTrackRestart": false,
+      "titleDelayMs": 300,
+      "dedupeMs": 1000,
+      "soundName": ""
+    }
+  </script>
+
   <script>
     const { preferences } = window.iina;
-    const defaults = {
-      enabled: true,
-      notificationMode: "both",
-      onlyMainWindow: true,
-      notifyOnInitialTrack: true,
-      notifyOnEndWithoutNext: false,
-      notifyOnSameTrackRestart: false,
-      titleDelayMs: 300,
-      dedupeMs: 1000,
-      soundName: ""
-    };
+    const defaults = Object.freeze(
+      JSON.parse(document.getElementById("preference-defaults").textContent)
+    );
     const inputs = Array.from(document.querySelectorAll("[data-pref-key]"));
     const notificationModeInputs = Array.from(
       document.querySelectorAll('input[name="notificationMode"]')

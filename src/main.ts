@@ -9,14 +9,24 @@ import {
   buildTrackKey,
   classifyTransition,
   mergeSnapshots,
+  shouldNotifyEndedTransition,
+  shouldSuppressDuplicateNotification,
 } from "./lib/state";
+import {
+  DEFAULT_PREFERENCES,
+  normalizeNonNegativeInteger,
+  normalizeNotificationMode,
+  type NumericPreferenceKey,
+  type PluginPreferences,
+  type PreferenceKey,
+} from "./lib/preferences";
 import type { EvaluationReason, NotificationMode, TrackSnapshot } from "./lib/types";
 
 const { console: iinaConsole, core, event, mpv, playlist, preferences, utils } = iina;
 
 const LOG_PREFIX = "[track-notify]";
 
-const state: {
+interface PluginState {
   lastSnapshot: TrackSnapshot | null;
   pendingTimer: ReturnType<typeof setTimeout> | null;
   pendingReasons: Set<EvaluationReason>;
@@ -25,7 +35,11 @@ const state: {
   lastNotificationKey: string | null;
   lastNotificationAt: number;
   osascriptAvailable: boolean;
-} = {
+}
+
+type PlaylistEntry = ReturnType<typeof playlist.list>[number];
+
+const state: PluginState = {
   lastSnapshot: null,
   pendingTimer: null,
   pendingReasons: new Set(),
@@ -36,27 +50,17 @@ const state: {
   osascriptAvailable: true,
 };
 
-function pref<T>(key: string, fallback: T): T {
-  const value = preferences.get(key) as T | null | undefined;
-  return value ?? fallback;
+function pref<K extends PreferenceKey>(key: K): PluginPreferences[K] {
+  const value = preferences.get(key) as PluginPreferences[K] | null | undefined;
+  return value ?? DEFAULT_PREFERENCES[key];
 }
 
-function intPref(key: string, fallback: number): number {
-  const value = Number(pref<number | string>(key, fallback));
-  if (!Number.isFinite(value) || value < 0) {
-    return fallback;
-  }
-
-  return Math.round(value);
+function intPref(key: NumericPreferenceKey): number {
+  return normalizeNonNegativeInteger(preferences.get(key), DEFAULT_PREFERENCES[key]);
 }
 
 function notificationMode(): NotificationMode {
-  const value = pref<string>("notificationMode", "both");
-  return value === "start" || value === "end" || value === "both" ? value : "both";
-}
-
-function oneLine(value: string | null | undefined): string {
-  return String(value ?? "").replace(/\s+/g, " ").trim();
+  return normalizeNotificationMode(preferences.get("notificationMode"));
 }
 
 function logDebug(message: string): void {
@@ -68,11 +72,20 @@ function logWarn(message: string): void {
 }
 
 function shouldNotifyFromThisWindow(): boolean {
-  if (!pref("onlyMainWindow", true)) {
+  if (!pref("onlyMainWindow")) {
     return true;
   }
 
   return state.isMainWindow;
+}
+
+function currentPlaylistItem(playlistIndex: number): PlaylistEntry | null {
+  const items = playlist.list();
+  return (
+    (playlistIndex >= 0 && playlistIndex < items.length ? items[playlistIndex] : null) ||
+    items.find((entry) => Boolean(entry.isPlaying)) ||
+    null
+  );
 }
 
 function buildSnapshot(): TrackSnapshot | null {
@@ -85,14 +98,11 @@ function buildSnapshot(): TrackSnapshot | null {
     Number.isInteger(playlistIndexValue) && Number(playlistIndexValue) >= 0
       ? Number(playlistIndexValue)
       : -1;
-  const items = playlist.list();
-  const item =
-    (playlistIndex >= 0 && playlistIndex < items.length ? items[playlistIndex] : null) ||
-    items.find((entry) => Boolean(entry.isPlaying)) ||
-    null;
   const title = String(core.status.title ?? "").trim();
-  const url = String(core.status.url ?? item?.filename ?? "").trim();
-  const rawFilename = String(item?.filename ?? url).trim();
+  const statusUrl = String(core.status.url ?? "").trim();
+  const item = statusUrl ? null : currentPlaylistItem(playlistIndex);
+  const rawFilename = String(item?.filename ?? statusUrl).trim();
+  const url = statusUrl || rawFilename;
   const sourceIdentity = normalizeSourceIdentity(rawFilename || url);
   const displayName = displayNameForCurrentItem(title, url);
 
@@ -104,7 +114,6 @@ function buildSnapshot(): TrackSnapshot | null {
     title,
     displayName,
     trackKey: buildTrackKey(playlistIndex, sourceIdentity || url, displayName),
-    timestamp: Date.now(),
   };
 }
 
@@ -120,21 +129,24 @@ async function maybeNotify(
   }
 
   const now = Date.now();
-  const dedupeMs = intPref("dedupeMs", 1000);
+  const dedupeMs = intPref("dedupeMs");
 
-  if (dedupeKey && state.lastNotificationKey === dedupeKey && now - state.lastNotificationAt <= dedupeMs) {
+  if (
+    shouldSuppressDuplicateNotification(
+      dedupeKey,
+      state.lastNotificationKey,
+      state.lastNotificationAt,
+      now,
+      dedupeMs,
+    )
+  ) {
     logDebug(`${LOG_PREFIX} suppressed duplicate notification: ${dedupeKey}`);
     return;
   }
 
-  logDebug(
-    `${LOG_PREFIX} notifying key=${dedupeKey ?? "none"} ` +
-      `title="${oneLine(payload.title)}" body="${oneLine(payload.body)}"`,
-  );
-
   await postNotification(utils, {
     ...payload,
-    soundName: pref("soundName", ""),
+    soundName: pref("soundName"),
   });
 
   if (dedupeKey) {
@@ -147,7 +159,7 @@ async function evaluatePotentialChange(reasons: EvaluationReason[]): Promise<voi
   const next = buildSnapshot();
   const previous = state.lastSnapshot;
 
-  if (!pref("enabled", true)) {
+  if (!pref("enabled")) {
     state.lastSnapshot = next;
     return;
   }
@@ -156,15 +168,8 @@ async function evaluatePotentialChange(reasons: EvaluationReason[]): Promise<voi
     previous,
     next,
     reasons,
-    allowSameTrackRestart: pref("notifyOnSameTrackRestart", false),
+    allowSameTrackRestart: pref("notifyOnSameTrackRestart"),
   });
-
-  logDebug(
-    `${LOG_PREFIX} reasons=${reasons.join(",")} ` +
-      `prev=${previous?.trackKey ?? "none"} next=${next?.trackKey ?? "none"} ` +
-      `prevName="${oneLine(previous?.displayName)}" nextName="${oneLine(next?.displayName)}" ` +
-      `kind=${transition.kind}`,
-  );
 
   switch (transition.kind) {
     case "none":
@@ -175,17 +180,25 @@ async function evaluatePotentialChange(reasons: EvaluationReason[]): Promise<voi
       return;
     case "initial":
       state.lastSnapshot = next;
-      if (next && pref("notifyOnInitialTrack", true) && notificationMode() !== "end") {
+      if (next && pref("notifyOnInitialTrack") && notificationMode() !== "end") {
         await maybeNotify(buildInitialPayload(next), transition.dedupeKey);
       }
       return;
     case "ended":
       state.lastSnapshot = null;
-      if (state.isWindowClosing) {
-        logDebug(`${LOG_PREFIX} suppressed ended notification while window is closing`);
+      if (
+        !shouldNotifyEndedTransition(
+          state.isWindowClosing,
+          pref("notifyOnEndWithoutNext"),
+          notificationMode(),
+        )
+      ) {
+        if (state.isWindowClosing) {
+          logDebug(`${LOG_PREFIX} suppressed ended notification while window is closing`);
+        }
         return;
       }
-      if (previous && pref("notifyOnEndWithoutNext", false) && notificationMode() !== "start") {
+      if (previous) {
         await maybeNotify(buildEndedPayload(previous), transition.dedupeKey);
       }
       return;
@@ -218,7 +231,7 @@ function scheduleEvaluation(reason: EvaluationReason): void {
     evaluatePotentialChange(reasons).catch((error) => {
       logWarn(`${LOG_PREFIX} error: ${String(error)}`);
     });
-  }, intPref("titleDelayMs", 300));
+  }, intPref("titleDelayMs"));
 }
 
 state.osascriptAvailable = utils.fileInPath("/usr/bin/osascript");

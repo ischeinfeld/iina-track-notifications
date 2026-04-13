@@ -30,8 +30,7 @@ Download the latest `.iinaplgz` asset from the GitHub releases page and open it 
 Requirements:
 
 - IINA 1.4.1 or later
-- Node.js 25 or later
-- npm 11 or later
+- Node.js 18 or later
 
 Install dependencies:
 
@@ -45,7 +44,8 @@ Build the plugin:
 npm run build
 ```
 
-This runs TypeScript compilation for the helper modules and then bundles the actual IINA entrypoint into a single `dist/main.js` file. IINA's module loader is intentionally minimal, so the bundled entry file avoids runtime module-resolution issues.
+This bundles the actual IINA entrypoint into a single committed runtime file at `dist/main.js`.
+TypeScript is kept for source editing and type-checking, but IINA still needs a bundled one-file entry because its module loader is intentionally minimal.
 
 Run type checks:
 
@@ -57,6 +57,12 @@ Run automated tests:
 
 ```bash
 npm test
+```
+
+Run the full release verification pass:
+
+```bash
+npm run verify
 ```
 
 Link the repository into IINA as a development plugin:
@@ -93,13 +99,14 @@ npm run pack
 
 - The plugin uses `/usr/bin/osascript` through IINA's `file-system` permission to deliver notifications.
 - macOS notification delivery still depends on system notification permissions for the script host on your machine.
-- The repository includes the compiled `dist/` output because IINA installs plugins directly from GitHub repository contents.
+- The repository includes the compiled `dist/main.js` runtime artifact because IINA installs plugins directly from GitHub repository contents.
+- Keeping the repo inside iCloud Drive is supported; the runtime bundling exists for IINA compatibility, not as an iCloud-specific workaround.
 
 ## Manual Release Flow
 
 1. Update `Info.json` version and increment `ghVersion`.
-2. Run `npm test`.
+2. Run `npm run verify`.
 3. Run `npm run pack`.
-4. Commit the source and compiled `dist/` output.
+4. Commit the source and compiled `dist/main.js` output.
 5. Tag the release, for example `v0.1.0`.
 6. Attach the generated `.iinaplgz` file to the GitHub release.

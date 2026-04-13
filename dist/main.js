@@ -41,14 +41,12 @@
   function buildInitialPayload(next) {
     return {
       title: "Track Changed",
-      subtitle: "",
       body: `Next: ${next.displayName}`
     };
   }
   function buildEndedPayload(previous) {
     return {
       title: "Track Changed",
-      subtitle: "",
       body: `Previous: ${previous.displayName}`
     };
   }
@@ -61,7 +59,6 @@
     }
     return {
       title: "Track Changed",
-      subtitle: "",
       body: `Previous: ${previous.displayName}
 Next: ${next.displayName}`
     };
@@ -133,14 +130,20 @@ Next: ${next.displayName}`
 
   // src/lib/state.ts
   var RESTART_REASONS = ["mpv.file-loaded", "mpv.end-file"];
-  function buildTrackKey(playlistIndex, url, displayName) {
+  function buildTrackKey(playlistIndex, sourceIdentity, displayName) {
     if (Number.isInteger(playlistIndex) && playlistIndex >= 0) {
-      return `${playlistIndex}|${url}`;
+      return `${playlistIndex}|${sourceIdentity}`;
     }
-    return `url:${url}|title:${displayName}`;
+    return `url:${sourceIdentity}|title:${displayName}`;
   }
   function hasRestartSignal(reasons) {
     return reasons.some((reason) => RESTART_REASONS.includes(reason));
+  }
+  function shouldSuppressDuplicateNotification(dedupeKey, lastNotificationKey, lastNotificationAt, now, dedupeMs) {
+    return Boolean(dedupeKey) && dedupeKey === lastNotificationKey && now - lastNotificationAt <= dedupeMs;
+  }
+  function shouldNotifyEndedTransition(isWindowClosing, notifyOnEndWithoutNext, mode) {
+    return !isWindowClosing && notifyOnEndWithoutNext && mode !== "start";
   }
   function mergeSnapshots(previous, next) {
     return {
@@ -205,6 +208,30 @@ Next: ${next.displayName}`
     return { kind: "none", previous, next, dedupeKey: null };
   }
 
+  // src/lib/preferences.ts
+  var defaults = {
+    enabled: true,
+    notificationMode: "both",
+    onlyMainWindow: true,
+    notifyOnInitialTrack: true,
+    notifyOnEndWithoutNext: false,
+    notifyOnSameTrackRestart: false,
+    titleDelayMs: 300,
+    dedupeMs: 1e3,
+    soundName: ""
+  };
+  var DEFAULT_PREFERENCES = Object.freeze(defaults);
+  function normalizeNotificationMode(value) {
+    return value === "start" || value === "end" || value === "both" ? value : DEFAULT_PREFERENCES.notificationMode;
+  }
+  function normalizeNonNegativeInteger(value, fallback) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return fallback;
+    }
+    return Math.round(parsed);
+  }
+
   // src/main.ts
   var { console: iinaConsole, core, event, mpv, playlist, preferences, utils } = iina;
   var LOG_PREFIX = "[track-notify]";
@@ -218,23 +245,15 @@ Next: ${next.displayName}`
     lastNotificationAt: 0,
     osascriptAvailable: true
   };
-  function pref(key, fallback) {
+  function pref(key) {
     const value = preferences.get(key);
-    return value != null ? value : fallback;
+    return value != null ? value : DEFAULT_PREFERENCES[key];
   }
-  function intPref(key, fallback) {
-    const value = Number(pref(key, fallback));
-    if (!Number.isFinite(value) || value < 0) {
-      return fallback;
-    }
-    return Math.round(value);
+  function intPref(key) {
+    return normalizeNonNegativeInteger(preferences.get(key), DEFAULT_PREFERENCES[key]);
   }
   function notificationMode() {
-    const value = pref("notificationMode", "both");
-    return value === "start" || value === "end" || value === "both" ? value : "both";
-  }
-  function oneLine(value) {
-    return String(value != null ? value : "").replace(/\s+/g, " ").trim();
+    return normalizeNotificationMode(preferences.get("notificationMode"));
   }
   function logDebug(message) {
     iinaConsole.log(message);
@@ -243,23 +262,27 @@ Next: ${next.displayName}`
     iinaConsole.warn(message);
   }
   function shouldNotifyFromThisWindow() {
-    if (!pref("onlyMainWindow", true)) {
+    if (!pref("onlyMainWindow")) {
       return true;
     }
     return state.isMainWindow;
   }
+  function currentPlaylistItem(playlistIndex) {
+    const items = playlist.list();
+    return (playlistIndex >= 0 && playlistIndex < items.length ? items[playlistIndex] : null) || items.find((entry) => Boolean(entry.isPlaying)) || null;
+  }
   function buildSnapshot() {
-    var _a, _b, _c, _d;
+    var _a, _b, _c;
     if (core.status.idle) {
       return null;
     }
     const playlistIndexValue = mpv.getNumber("playlist-pos");
     const playlistIndex = Number.isInteger(playlistIndexValue) && Number(playlistIndexValue) >= 0 ? Number(playlistIndexValue) : -1;
-    const items = playlist.list();
-    const item = (playlistIndex >= 0 && playlistIndex < items.length ? items[playlistIndex] : null) || items.find((entry) => Boolean(entry.isPlaying)) || null;
     const title = String((_a = core.status.title) != null ? _a : "").trim();
-    const url = String((_c = (_b = core.status.url) != null ? _b : item == null ? void 0 : item.filename) != null ? _c : "").trim();
-    const rawFilename = String((_d = item == null ? void 0 : item.filename) != null ? _d : url).trim();
+    const statusUrl = String((_b = core.status.url) != null ? _b : "").trim();
+    const item = statusUrl ? null : currentPlaylistItem(playlistIndex);
+    const rawFilename = String((_c = item == null ? void 0 : item.filename) != null ? _c : statusUrl).trim();
+    const url = statusUrl || rawFilename;
     const sourceIdentity = normalizeSourceIdentity(rawFilename || url);
     const displayName = displayNameForCurrentItem(title, url);
     return {
@@ -269,8 +292,7 @@ Next: ${next.displayName}`
       sourceIdentity,
       title,
       displayName,
-      trackKey: buildTrackKey(playlistIndex, sourceIdentity || url, displayName),
-      timestamp: Date.now()
+      trackKey: buildTrackKey(playlistIndex, sourceIdentity || url, displayName)
     };
   }
   async function maybeNotify(payload, dedupeKey) {
@@ -278,17 +300,20 @@ Next: ${next.displayName}`
       return;
     }
     const now = Date.now();
-    const dedupeMs = intPref("dedupeMs", 1e3);
-    if (dedupeKey && state.lastNotificationKey === dedupeKey && now - state.lastNotificationAt <= dedupeMs) {
+    const dedupeMs = intPref("dedupeMs");
+    if (shouldSuppressDuplicateNotification(
+      dedupeKey,
+      state.lastNotificationKey,
+      state.lastNotificationAt,
+      now,
+      dedupeMs
+    )) {
       logDebug(`${LOG_PREFIX} suppressed duplicate notification: ${dedupeKey}`);
       return;
     }
-    logDebug(
-      `${LOG_PREFIX} notifying key=${dedupeKey != null ? dedupeKey : "none"} title="${oneLine(payload.title)}" body="${oneLine(payload.body)}"`
-    );
     await postNotification(utils, {
       ...payload,
-      soundName: pref("soundName", "")
+      soundName: pref("soundName")
     });
     if (dedupeKey) {
       state.lastNotificationKey = dedupeKey;
@@ -296,10 +321,9 @@ Next: ${next.displayName}`
     }
   }
   async function evaluatePotentialChange(reasons) {
-    var _a, _b;
     const next = buildSnapshot();
     const previous = state.lastSnapshot;
-    if (!pref("enabled", true)) {
+    if (!pref("enabled")) {
       state.lastSnapshot = next;
       return;
     }
@@ -307,11 +331,8 @@ Next: ${next.displayName}`
       previous,
       next,
       reasons,
-      allowSameTrackRestart: pref("notifyOnSameTrackRestart", false)
+      allowSameTrackRestart: pref("notifyOnSameTrackRestart")
     });
-    logDebug(
-      `${LOG_PREFIX} reasons=${reasons.join(",")} prev=${(_a = previous == null ? void 0 : previous.trackKey) != null ? _a : "none"} next=${(_b = next == null ? void 0 : next.trackKey) != null ? _b : "none"} prevName="${oneLine(previous == null ? void 0 : previous.displayName)}" nextName="${oneLine(next == null ? void 0 : next.displayName)}" kind=${transition.kind}`
-    );
     switch (transition.kind) {
       case "none":
         state.lastSnapshot = next;
@@ -321,17 +342,23 @@ Next: ${next.displayName}`
         return;
       case "initial":
         state.lastSnapshot = next;
-        if (next && pref("notifyOnInitialTrack", true) && notificationMode() !== "end") {
+        if (next && pref("notifyOnInitialTrack") && notificationMode() !== "end") {
           await maybeNotify(buildInitialPayload(next), transition.dedupeKey);
         }
         return;
       case "ended":
         state.lastSnapshot = null;
-        if (state.isWindowClosing) {
-          logDebug(`${LOG_PREFIX} suppressed ended notification while window is closing`);
+        if (!shouldNotifyEndedTransition(
+          state.isWindowClosing,
+          pref("notifyOnEndWithoutNext"),
+          notificationMode()
+        )) {
+          if (state.isWindowClosing) {
+            logDebug(`${LOG_PREFIX} suppressed ended notification while window is closing`);
+          }
           return;
         }
-        if (previous && pref("notifyOnEndWithoutNext", false) && notificationMode() !== "start") {
+        if (previous) {
           await maybeNotify(buildEndedPayload(previous), transition.dedupeKey);
         }
         return;
@@ -360,7 +387,7 @@ Next: ${next.displayName}`
       evaluatePotentialChange(reasons).catch((error) => {
         logWarn(`${LOG_PREFIX} error: ${String(error)}`);
       });
-    }, intPref("titleDelayMs", 300));
+    }, intPref("titleDelayMs"));
   }
   state.osascriptAvailable = utils.fileInPath("/usr/bin/osascript");
   if (!state.osascriptAvailable) {
