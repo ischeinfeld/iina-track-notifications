@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildTrackKey = buildTrackKey;
 exports.hasRestartSignal = hasRestartSignal;
 exports.mergeSnapshots = mergeSnapshots;
+exports.isSameTrackIdentity = isSameTrackIdentity;
 exports.classifyTransition = classifyTransition;
 const RESTART_REASONS = ["mpv.file-loaded", "mpv.end-file"];
 function buildTrackKey(playlistIndex, url, displayName) {
@@ -20,6 +21,18 @@ function mergeSnapshots(previous, next) {
         ...next,
         displayName: next.displayName || previous.displayName,
     };
+}
+function sameNonEmpty(a, b) {
+    return Boolean(a) && Boolean(b) && a === b;
+}
+function isSameTrackIdentity(previous, next) {
+    const sameSource = sameNonEmpty(previous.sourceIdentity, next.sourceIdentity) ||
+        sameNonEmpty(previous.url, next.url) ||
+        sameNonEmpty(previous.rawFilename, next.rawFilename);
+    if (!sameSource) {
+        return previous.trackKey === next.trackKey;
+    }
+    return true;
 }
 function classifyTransition(context) {
     const { previous, next, reasons, allowSameTrackRestart } = context;
@@ -45,7 +58,7 @@ function classifyTransition(context) {
     if (!previous || !next) {
         return { kind: "none", previous, next, dedupeKey: null };
     }
-    if (previous.trackKey !== next.trackKey) {
+    if (!isSameTrackIdentity(previous, next)) {
         return {
             kind: "changed",
             previous,

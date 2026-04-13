@@ -11,6 +11,15 @@ export function normalizeOneLine(value: string | null | undefined): string {
   return String(value ?? "").replace(/\s+/g, " ").trim();
 }
 
+export function normalizeBody(value: string | null | undefined): string {
+  return String(value ?? "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => normalizeOneLine(line))
+    .filter(Boolean)
+    .join("\n");
+}
+
 export function truncate(value: string, maxLength = MAX_FIELD_LENGTH): string {
   if (value.length <= maxLength) {
     return value;
@@ -26,8 +35,19 @@ export function sanitizeNotificationField(
   return truncate(normalizeOneLine(value), maxLength);
 }
 
+export function sanitizeNotificationBody(
+  value: string | null | undefined,
+  maxLength = MAX_FIELD_LENGTH,
+): string {
+  return normalizeBody(value)
+    .split("\n")
+    .map((line) => truncate(line, maxLength))
+    .filter(Boolean)
+    .join("\n");
+}
+
 export function appleScriptString(value: string | null | undefined): string {
-  const safe = sanitizeNotificationField(value, 1000)
+  const safe = sanitizeNotificationBody(value, 1000)
     .replace(/\\/g, "\\\\")
     .replace(/"/g, '\\"');
 
@@ -37,7 +57,7 @@ export function appleScriptString(value: string | null | undefined): string {
 export function buildAppleScript(payload: NotificationPayload): string {
   const title = sanitizeNotificationField(payload.title);
   const subtitle = sanitizeNotificationField(payload.subtitle);
-  const body = sanitizeNotificationField(payload.body);
+  const body = sanitizeNotificationBody(payload.body);
   const soundName = sanitizeNotificationField(payload.soundName);
 
   let script =
@@ -57,17 +77,17 @@ export function buildAppleScript(payload: NotificationPayload): string {
 
 export function buildInitialPayload(next: TrackSnapshot): NotificationPayload {
   return {
-    title: "Now Playing",
+    title: "Track Changed",
     subtitle: "",
-    body: next.displayName,
+    body: `Next: ${next.displayName}`,
   };
 }
 
 export function buildEndedPayload(previous: TrackSnapshot): NotificationPayload {
   return {
-    title: "Finished",
+    title: "Track Changed",
     subtitle: "",
-    body: previous.displayName,
+    body: `Previous: ${previous.displayName}`,
   };
 }
 
@@ -86,8 +106,8 @@ export function buildTrackChangePayload(
 
   return {
     title: "Track Changed",
-    subtitle: `Ended: ${previous.displayName}`,
-    body: `Started: ${next.displayName}`,
+    subtitle: "",
+    body: `Previous: ${previous.displayName}\nNext: ${next.displayName}`,
   };
 }
 

@@ -1,10 +1,37 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.UNKNOWN_TRACK = void 0;
+exports.normalizeSourceIdentity = normalizeSourceIdentity;
 exports.basename = basename;
 exports.displayNameForCurrentItem = displayNameForCurrentItem;
 exports.displayNameForPlaylistItem = displayNameForPlaylistItem;
 exports.UNKNOWN_TRACK = "Unknown Track";
+function normalizeSourceIdentity(pathOrUrl) {
+    var _a;
+    const raw = String(pathOrUrl !== null && pathOrUrl !== void 0 ? pathOrUrl : "").trim();
+    if (!raw) {
+        return "";
+    }
+    try {
+        if (raw.startsWith("file://")) {
+            return decodeURIComponent(new URL(raw).pathname);
+        }
+        if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(raw)) {
+            const parsed = new URL(raw);
+            return `${parsed.origin}${parsed.pathname}${parsed.search}`;
+        }
+    }
+    catch {
+        // Fall through to plain-path normalization.
+    }
+    const stripped = (_a = raw.split(/[?#]/, 1)[0]) !== null && _a !== void 0 ? _a : raw;
+    try {
+        return decodeURIComponent(stripped);
+    }
+    catch {
+        return stripped;
+    }
+}
 function basename(pathOrUrl) {
     var _a, _b;
     const raw = String(pathOrUrl !== null && pathOrUrl !== void 0 ? pathOrUrl : "").trim();

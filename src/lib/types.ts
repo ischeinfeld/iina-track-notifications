@@ -1,11 +1,11 @@
 export type NotificationMode = "start" | "end" | "both";
 
 export type EvaluationReason =
-  | "startup"
   | "mpv.file-loaded"
   | "mpv.playlist-pos.changed"
   | "mpv.media-title.changed"
-  | "mpv.end-file";
+  | "mpv.end-file"
+  | "iina.window-main.changed";
 
 export interface PlaylistItemLike {
   filename?: string | null;
@@ -16,6 +16,7 @@ export interface TrackSnapshot {
   playlistIndex: number;
   url: string;
   rawFilename: string;
+  sourceIdentity: string;
   title: string;
   displayName: string;
   trackKey: string;

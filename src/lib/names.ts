@@ -2,6 +2,34 @@ import type { PlaylistItemLike } from "./types";
 
 export const UNKNOWN_TRACK = "Unknown Track";
 
+export function normalizeSourceIdentity(pathOrUrl: string | null | undefined): string {
+  const raw = String(pathOrUrl ?? "").trim();
+  if (!raw) {
+    return "";
+  }
+
+  try {
+    if (raw.startsWith("file://")) {
+      return decodeURIComponent(new URL(raw).pathname);
+    }
+
+    if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(raw)) {
+      const parsed = new URL(raw);
+      return `${parsed.origin}${parsed.pathname}${parsed.search}`;
+    }
+  } catch {
+    // Fall through to plain-path normalization.
+  }
+
+  const stripped = raw.split(/[?#]/, 1)[0] ?? raw;
+
+  try {
+    return decodeURIComponent(stripped);
+  } catch {
+    return stripped;
+  }
+}
+
 export function basename(pathOrUrl: string | null | undefined): string {
   const raw = String(pathOrUrl ?? "").trim();
   if (!raw) {

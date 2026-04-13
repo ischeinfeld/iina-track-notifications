@@ -31,6 +31,23 @@ export function mergeSnapshots(previous: TrackSnapshot, next: TrackSnapshot): Tr
   };
 }
 
+function sameNonEmpty(a: string, b: string): boolean {
+  return Boolean(a) && Boolean(b) && a === b;
+}
+
+export function isSameTrackIdentity(previous: TrackSnapshot, next: TrackSnapshot): boolean {
+  const sameSource =
+    sameNonEmpty(previous.sourceIdentity, next.sourceIdentity) ||
+    sameNonEmpty(previous.url, next.url) ||
+    sameNonEmpty(previous.rawFilename, next.rawFilename);
+
+  if (!sameSource) {
+    return previous.trackKey === next.trackKey;
+  }
+
+  return true;
+}
+
 export function classifyTransition(context: TransitionContext): TransitionResult {
   const { previous, next, reasons, allowSameTrackRestart } = context;
 
@@ -60,7 +77,7 @@ export function classifyTransition(context: TransitionContext): TransitionResult
     return { kind: "none", previous, next, dedupeKey: null };
   }
 
-  if (previous.trackKey !== next.trackKey) {
+  if (!isSameTrackIdentity(previous, next)) {
     return {
       kind: "changed",
       previous,

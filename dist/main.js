@@ -5,6 +5,9 @@
   function normalizeOneLine(value) {
     return String(value != null ? value : "").replace(/\s+/g, " ").trim();
   }
+  function normalizeBody(value) {
+    return String(value != null ? value : "").replace(/\r\n?/g, "\n").split("\n").map((line) => normalizeOneLine(line)).filter(Boolean).join("\n");
+  }
   function truncate(value, maxLength = MAX_FIELD_LENGTH) {
     if (value.length <= maxLength) {
       return value;
@@ -14,14 +17,17 @@
   function sanitizeNotificationField(value, maxLength = MAX_FIELD_LENGTH) {
     return truncate(normalizeOneLine(value), maxLength);
   }
+  function sanitizeNotificationBody(value, maxLength = MAX_FIELD_LENGTH) {
+    return normalizeBody(value).split("\n").map((line) => truncate(line, maxLength)).filter(Boolean).join("\n");
+  }
   function appleScriptString(value) {
-    const safe = sanitizeNotificationField(value, 1e3).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    const safe = sanitizeNotificationBody(value, 1e3).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
     return `"${safe}"`;
   }
   function buildAppleScript(payload) {
     const title = sanitizeNotificationField(payload.title);
     const subtitle = sanitizeNotificationField(payload.subtitle);
-    const body = sanitizeNotificationField(payload.body);
+    const body = sanitizeNotificationBody(payload.body);
     const soundName = sanitizeNotificationField(payload.soundName);
     let script = `display notification ${appleScriptString(body)} with title ${appleScriptString(title)}`;
     if (subtitle) {
@@ -34,16 +40,16 @@
   }
   function buildInitialPayload(next) {
     return {
-      title: "Now Playing",
+      title: "Track Changed",
       subtitle: "",
-      body: next.displayName
+      body: `Next: ${next.displayName}`
     };
   }
   function buildEndedPayload(previous) {
     return {
-      title: "Finished",
+      title: "Track Changed",
       subtitle: "",
-      body: previous.displayName
+      body: `Previous: ${previous.displayName}`
     };
   }
   function buildTrackChangePayload(mode, previous, next) {
@@ -55,8 +61,9 @@
     }
     return {
       title: "Track Changed",
-      subtitle: `Ended: ${previous.displayName}`,
-      body: `Started: ${next.displayName}`
+      subtitle: "",
+      body: `Previous: ${previous.displayName}
+Next: ${next.displayName}`
     };
   }
   async function postNotification(utils2, payload) {
@@ -69,6 +76,29 @@
 
   // src/lib/names.ts
   var UNKNOWN_TRACK = "Unknown Track";
+  function normalizeSourceIdentity(pathOrUrl) {
+    var _a;
+    const raw = String(pathOrUrl != null ? pathOrUrl : "").trim();
+    if (!raw) {
+      return "";
+    }
+    try {
+      if (raw.startsWith("file://")) {
+        return decodeURIComponent(new URL(raw).pathname);
+      }
+      if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(raw)) {
+        const parsed = new URL(raw);
+        return `${parsed.origin}${parsed.pathname}${parsed.search}`;
+      }
+    } catch (e) {
+    }
+    const stripped = (_a = raw.split(/[?#]/, 1)[0]) != null ? _a : raw;
+    try {
+      return decodeURIComponent(stripped);
+    } catch (e) {
+      return stripped;
+    }
+  }
   function basename(pathOrUrl) {
     var _a, _b;
     const raw = String(pathOrUrl != null ? pathOrUrl : "").trim();
@@ -119,6 +149,16 @@
       displayName: next.displayName || previous.displayName
     };
   }
+  function sameNonEmpty(a, b) {
+    return Boolean(a) && Boolean(b) && a === b;
+  }
+  function isSameTrackIdentity(previous, next) {
+    const sameSource = sameNonEmpty(previous.sourceIdentity, next.sourceIdentity) || sameNonEmpty(previous.url, next.url) || sameNonEmpty(previous.rawFilename, next.rawFilename);
+    if (!sameSource) {
+      return previous.trackKey === next.trackKey;
+    }
+    return true;
+  }
   function classifyTransition(context) {
     const { previous, next, reasons, allowSameTrackRestart } = context;
     if (!previous && !next) {
@@ -143,7 +183,7 @@
     if (!previous || !next) {
       return { kind: "none", previous, next, dedupeKey: null };
     }
-    if (previous.trackKey !== next.trackKey) {
+    if (!isSameTrackIdentity(previous, next)) {
       return {
         kind: "changed",
         previous,
@@ -166,13 +206,14 @@
   }
 
   // src/main.ts
-  var { console, core, event, mpv, playlist, preferences, utils } = iina;
+  var { console: iinaConsole, core, event, mpv, playlist, preferences, utils } = iina;
   var LOG_PREFIX = "[track-notify]";
   var state = {
     lastSnapshot: null,
     pendingTimer: null,
     pendingReasons: /* @__PURE__ */ new Set(),
     isMainWindow: true,
+    isWindowClosing: false,
     lastNotificationKey: null,
     lastNotificationAt: 0,
     osascriptAvailable: true
@@ -192,8 +233,20 @@
     const value = pref("notificationMode", "both");
     return value === "start" || value === "end" || value === "both" ? value : "both";
   }
+  function oneLine(value) {
+    return String(value != null ? value : "").replace(/\s+/g, " ").trim();
+  }
+  function logDebug(message) {
+    iinaConsole.log(message);
+  }
+  function logWarn(message) {
+    iinaConsole.warn(message);
+  }
   function shouldNotifyFromThisWindow() {
-    return !pref("onlyMainWindow", true) || state.isMainWindow;
+    if (!pref("onlyMainWindow", true)) {
+      return true;
+    }
+    return state.isMainWindow;
   }
   function buildSnapshot() {
     var _a, _b, _c, _d;
@@ -207,14 +260,16 @@
     const title = String((_a = core.status.title) != null ? _a : "").trim();
     const url = String((_c = (_b = core.status.url) != null ? _b : item == null ? void 0 : item.filename) != null ? _c : "").trim();
     const rawFilename = String((_d = item == null ? void 0 : item.filename) != null ? _d : url).trim();
+    const sourceIdentity = normalizeSourceIdentity(rawFilename || url);
     const displayName = displayNameForCurrentItem(title, url);
     return {
       playlistIndex,
       url,
       rawFilename,
+      sourceIdentity,
       title,
       displayName,
-      trackKey: buildTrackKey(playlistIndex, url, displayName),
+      trackKey: buildTrackKey(playlistIndex, sourceIdentity || url, displayName),
       timestamp: Date.now()
     };
   }
@@ -225,9 +280,12 @@
     const now = Date.now();
     const dedupeMs = intPref("dedupeMs", 1e3);
     if (dedupeKey && state.lastNotificationKey === dedupeKey && now - state.lastNotificationAt <= dedupeMs) {
-      console.log(`${LOG_PREFIX} suppressed duplicate notification: ${dedupeKey}`);
+      logDebug(`${LOG_PREFIX} suppressed duplicate notification: ${dedupeKey}`);
       return;
     }
+    logDebug(
+      `${LOG_PREFIX} notifying key=${dedupeKey != null ? dedupeKey : "none"} title="${oneLine(payload.title)}" body="${oneLine(payload.body)}"`
+    );
     await postNotification(utils, {
       ...payload,
       soundName: pref("soundName", "")
@@ -251,8 +309,8 @@
       reasons,
       allowSameTrackRestart: pref("notifyOnSameTrackRestart", false)
     });
-    console.log(
-      `${LOG_PREFIX} reasons=${reasons.join(",")} prev=${(_a = previous == null ? void 0 : previous.trackKey) != null ? _a : "none"} next=${(_b = next == null ? void 0 : next.trackKey) != null ? _b : "none"} kind=${transition.kind}`
+    logDebug(
+      `${LOG_PREFIX} reasons=${reasons.join(",")} prev=${(_a = previous == null ? void 0 : previous.trackKey) != null ? _a : "none"} next=${(_b = next == null ? void 0 : next.trackKey) != null ? _b : "none"} prevName="${oneLine(previous == null ? void 0 : previous.displayName)}" nextName="${oneLine(next == null ? void 0 : next.displayName)}" kind=${transition.kind}`
     );
     switch (transition.kind) {
       case "none":
@@ -269,6 +327,10 @@
         return;
       case "ended":
         state.lastSnapshot = null;
+        if (state.isWindowClosing) {
+          logDebug(`${LOG_PREFIX} suppressed ended notification while window is closing`);
+          return;
+        }
         if (previous && pref("notifyOnEndWithoutNext", false) && notificationMode() !== "start") {
           await maybeNotify(buildEndedPayload(previous), transition.dedupeKey);
         }
@@ -296,16 +358,27 @@
       state.pendingReasons.clear();
       state.pendingTimer = null;
       evaluatePotentialChange(reasons).catch((error) => {
-        console.log(`${LOG_PREFIX} error: ${String(error)}`);
+        logWarn(`${LOG_PREFIX} error: ${String(error)}`);
       });
     }, intPref("titleDelayMs", 300));
   }
   state.osascriptAvailable = utils.fileInPath("/usr/bin/osascript");
   if (!state.osascriptAvailable) {
-    console.log(`${LOG_PREFIX} /usr/bin/osascript is unavailable; notifications are disabled`);
+    logWarn(`${LOG_PREFIX} /usr/bin/osascript is unavailable; notifications are disabled`);
   }
   event.on("iina.window-main.changed", (status) => {
     state.isMainWindow = status;
+    scheduleEvaluation("iina.window-main.changed");
+  });
+  event.on("iina.window-will-close", () => {
+    state.isWindowClosing = true;
+    state.lastSnapshot = null;
+    state.pendingReasons.clear();
+    if (state.pendingTimer) {
+      clearTimeout(state.pendingTimer);
+      state.pendingTimer = null;
+    }
+    logDebug(`${LOG_PREFIX} window is closing; suppressing shutdown notifications`);
   });
   event.on("mpv.file-loaded", () => {
     scheduleEvaluation("mpv.file-loaded");
@@ -319,5 +392,4 @@
   event.on("mpv.end-file", () => {
     scheduleEvaluation("mpv.end-file");
   });
-  scheduleEvaluation("startup");
 })();

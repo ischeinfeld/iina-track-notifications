@@ -6,6 +6,7 @@ const {
   basename,
   displayNameForCurrentItem,
   displayNameForPlaylistItem,
+  normalizeSourceIdentity,
 } = require("../dist/lib/names.js");
 
 test("basename handles local paths, file URLs, and query strings", () => {
@@ -14,6 +15,21 @@ test("basename handles local paths, file URLs, and query strings", () => {
   assert.equal(
     basename("https://example.com/audio/track%2001.mp3?token=abc#section"),
     "track 01.mp3",
+  );
+});
+
+test("normalizeSourceIdentity treats file URLs and local paths as the same source", () => {
+  assert.equal(
+    normalizeSourceIdentity("file:///Users/me/Music/track%2001.mp3"),
+    "/Users/me/Music/track 01.mp3",
+  );
+  assert.equal(
+    normalizeSourceIdentity("/Users/me/Music/track 01.mp3"),
+    "/Users/me/Music/track 01.mp3",
+  );
+  assert.equal(
+    normalizeSourceIdentity("https://example.com/audio/track.mp3?token=abc#section"),
+    "https://example.com/audio/track.mp3?token=abc",
   );
 });
 
