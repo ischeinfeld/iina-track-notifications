@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2019",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "rootDir": "src",
+    "outDir": "dist",
+    "strict": true,
+    "noEmitOnError": true,
+    "skipLibCheck": true,
+    "ignoreDeprecations": "6.0",
+    "lib": ["ES2020", "DOM"],
+    "types": ["iina-plugin-definition"]
+  },
+  "include": ["src/**/*.ts"]
+}

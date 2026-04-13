@@ -1,0 +1,28 @@
+{
+  "name": "Track Change Notifications",
+  "identifier": "io.github.ischeinfeld.iina-track-notifications",
+  "version": "0.1.0",
+  "description": "Send configurable macOS notifications when the current playlist item changes.",
+  "author": {
+    "name": "Isaac Scheinfeld",
+    "url": "https://github.com/ischeinfeld"
+  },
+  "entry": "dist/main.js",
+  "preferencesPage": "pref.html",
+  "permissions": [
+    "file-system"
+  ],
+  "ghRepo": "ischeinfeld/iina-track-notifications",
+  "ghVersion": 1,
+  "preferenceDefaults": {
+    "enabled": true,
+    "notificationMode": "both",
+    "onlyMainWindow": true,
+    "notifyOnInitialTrack": true,
+    "notifyOnEndWithoutNext": false,
+    "notifyOnSameTrackRestart": false,
+    "titleDelayMs": 300,
+    "dedupeMs": 1000,
+    "soundName": ""
+  }
+}

@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Track Change Notifications Preferences</title>
+  <style>
+    .number-input {
+      width: 6rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="pref-section">
+    <label>
+      <input type="checkbox" data-type="bool" data-pref-key="enabled" />
+      Enable track-change notifications
+    </label>
+  </div>
+
+  <div class="pref-section">
+    Notification mode:
+    <div style="margin-top: 4px; line-height: 24px">
+      <div>
+        <label><input type="radio" name="notificationMode" value="start" /> Beginning track only</label>
+      </div>
+      <div>
+        <label><input type="radio" name="notificationMode" value="end" /> Ending track only</label>
+      </div>
+      <div>
+        <label><input type="radio" name="notificationMode" value="both" /> Both ending and beginning</label>
+      </div>
+    </div>
+  </div>
+
+  <div class="pref-section">
+    <label>
+      <input type="checkbox" data-type="bool" data-pref-key="onlyMainWindow" />
+      Notify only for the main/frontmost IINA window
+    </label>
+  </div>
+
+  <div class="pref-section">
+    <label>
+      <input type="checkbox" data-type="bool" data-pref-key="notifyOnInitialTrack" />
+      Notify on the first loaded track
+    </label>
+  </div>
+
+  <div class="pref-section">
+    <label>
+      <input type="checkbox" data-type="bool" data-pref-key="notifyOnEndWithoutNext" />
+      Notify when playback ends and no next track starts
+    </label>
+  </div>
+
+  <div class="pref-section">
+    <label>
+      <input type="checkbox" data-type="bool" data-pref-key="notifyOnSameTrackRestart" />
+      Treat same-track restarts as a change
+    </label>
+  </div>
+
+  <div class="pref-section">
+    Delay before notification (ms):
+    <div style="margin-top: 2px">
+      <input class="number-input" type="number" data-type="int" data-pref-key="titleDelayMs" />
+    </div>
+    <p class="small secondary pref-help">
+      A short delay helps online titles and metadata settle before the notification is sent.
+    </p>
+  </div>
+
+  <div class="pref-section">
+    Duplicate suppression window (ms):
+    <div style="margin-top: 2px">
+      <input class="number-input" type="number" data-type="int" data-pref-key="dedupeMs" />
+    </div>
+  </div>
+
+  <div class="pref-section">
+    Notification sound name:
+    <div style="margin-top: 2px">
+      <input type="text" data-pref-key="soundName" style="width: 100%" />
+    </div>
+    <p class="small secondary pref-help">
+      Leave empty for no sound.
+    </p>
+  </div>
+
+  <script>
+    const notificationModeInputs = Array.from(
+      document.querySelectorAll('input[name="notificationMode"]')
+    );
+    const prefKey = "notificationMode";
+    const { preferences } = window.iina;
+
+    preferences.get(prefKey, (value) => {
+      const selected = typeof value === "string" && value ? value : "both";
+      notificationModeInputs.forEach((input) => {
+        input.checked = input.value === selected;
+      });
+    });
+
+    notificationModeInputs.forEach((input) => {
+      input.addEventListener("change", () => {
+        if (input.checked) {
+          preferences.set(prefKey, input.value);
+        }
+      });
+    });
+  </script>
+</body>
+</html>
