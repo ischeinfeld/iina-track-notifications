@@ -45,6 +45,8 @@ Build the plugin:
 npm run build
 ```
 
+This runs TypeScript compilation for the helper modules and then bundles the actual IINA entrypoint into a single `dist/main.js` file. IINA's module loader is intentionally minimal, so the bundled entry file avoids runtime module-resolution issues.
+
 Run type checks:
 
 ```bash

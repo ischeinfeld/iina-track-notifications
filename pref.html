@@ -88,14 +88,60 @@
   </div>
 
   <script>
+    const { preferences } = window.iina;
+    const defaults = {
+      enabled: true,
+      notificationMode: "both",
+      onlyMainWindow: true,
+      notifyOnInitialTrack: true,
+      notifyOnEndWithoutNext: false,
+      notifyOnSameTrackRestart: false,
+      titleDelayMs: 300,
+      dedupeMs: 1000,
+      soundName: ""
+    };
+    const inputs = Array.from(document.querySelectorAll("[data-pref-key]"));
     const notificationModeInputs = Array.from(
       document.querySelectorAll('input[name="notificationMode"]')
     );
-    const prefKey = "notificationMode";
-    const { preferences } = window.iina;
 
-    preferences.get(prefKey, (value) => {
-      const selected = typeof value === "string" && value ? value : "both";
+    inputs.forEach((input) => {
+      const key = input.dataset.prefKey;
+      if (!key) {
+        return;
+      }
+
+      preferences.get(key, (value) => {
+        const resolved = value === undefined || value === null ? defaults[key] : value;
+
+        if (input.type === "checkbox") {
+          input.checked = Boolean(resolved);
+          return;
+        }
+
+        input.value = resolved === undefined || resolved === null ? "" : String(resolved);
+      });
+
+      input.addEventListener("change", () => {
+        if (input.type === "checkbox") {
+          preferences.set(key, input.checked);
+          return;
+        }
+
+        if (input.type === "number") {
+          const fallback = defaults[key];
+          const parsed = Number.parseInt(input.value, 10);
+          preferences.set(key, Number.isFinite(parsed) ? parsed : fallback);
+          return;
+        }
+
+        preferences.set(key, input.value);
+      });
+    });
+
+    preferences.get("notificationMode", (value) => {
+      const selected =
+        typeof value === "string" && value ? value : defaults.notificationMode;
       notificationModeInputs.forEach((input) => {
         input.checked = input.value === selected;
       });
@@ -103,9 +149,11 @@
 
     notificationModeInputs.forEach((input) => {
       input.addEventListener("change", () => {
-        if (input.checked) {
-          preferences.set(prefKey, input.value);
+        if (!input.checked) {
+          return;
         }
+
+        preferences.set("notificationMode", input.value);
       });
     });
   </script>

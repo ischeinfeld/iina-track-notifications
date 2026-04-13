@@ -13,7 +13,9 @@
   },
   "homepage": "https://github.com/ischeinfeld/iina-track-notifications#readme",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "npm run build:ts && npm run build:plugin",
+    "build:ts": "tsc -p tsconfig.json",
+    "build:plugin": "node scripts/build-plugin.cjs",
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test test/*.test.js",
     "link": "\"/Applications/IINA.app/Contents/MacOS/iina-plugin\" link .",
@@ -21,6 +23,7 @@
     "pack": "\"/Applications/IINA.app/Contents/MacOS/iina-plugin\" pack ."
   },
   "devDependencies": {
+    "esbuild": "^0.25.3",
     "iina-plugin-definition": "^0.99.3",
     "typescript": "^6.0.2"
   }
